@@ -6,7 +6,6 @@ $limitstart = 0;
 $limitnum = 50;
 $found = 0;
 
-// output file
 $outputFile = __DIR__ . '/inactive_client_ids.txt';
 $file = fopen($outputFile, 'w');
 
@@ -17,7 +16,6 @@ if (!$file) {
 echo "<pre>";
 
 do {
-    // Step 1: get clients
     $results = localAPI('GetClients', [
         'limitstart' => $limitstart,
         'limitnum' => $limitnum,
@@ -28,11 +26,17 @@ do {
         die("API Error\n");
     }
 
-    foreach ($results['clients']['client'] as $client) {
+    // Handle single vs multiple clients
+    $clients = [];
+    if (isset($results['clients']['client'][0])) {
+        $clients = $results['clients']['client'];
+    } elseif (isset($results['clients']['client']['id'])) {
+        $clients[] = $results['clients']['client'];
+    }
 
+    foreach ($clients as $client) {
         $clientId = $client['id'];
 
-        // Step 2: get client details
         $details = localAPI('GetClientsDetails', [
             'clientid' => $clientId,
             'responsetype' => 'json'
@@ -40,7 +44,7 @@ do {
 
         if ($details['status'] !== 'Inactive') continue;
 
-        // Step 3: check client products
+        // Check products
         $products = localAPI('GetClientsProducts', [
             'clientid' => $clientId,
             'responsetype' => 'json'
@@ -48,13 +52,15 @@ do {
 
         $activeProducts = 0;
         if (!empty($products['products']['product'])) {
-            foreach ($products['products']['product'] as $p) {
+            $productList = $products['products']['product'];
+            if (isset($productList['id'])) $productList = [$productList]; // single product
+            foreach ($productList as $p) {
                 if ($p['status'] === 'Active') $activeProducts++;
             }
         }
         if ($activeProducts > 0) continue;
 
-        // Step 4: check client domains
+        // Check domains
         $domains = localAPI('GetClientsDomains', [
             'clientid' => $clientId,
             'responsetype' => 'json'
@@ -62,15 +68,25 @@ do {
 
         $domainCount = 0;
         if (!empty($domains['domains']['domain'])) {
-            $domainCount = count($domains['domains']['domain']);
+            $domainList = $domains['domains']['domain'];
+            if (isset($domainList['id'])) $domainList = [$domainList];
+            $domainCount = count($domainList);
         }
         if ($domainCount > 0) continue;
 
-        // ✅ client is completely inactive
+        // ✅ completely inactive client
         $found++;
-        echo "Client ID: $clientId - " . $details['firstname'] . " " . $details['lastname'] . "\n";
 
-        // write client ID to file
+        // Pretty output
+        echo "Client ID: $clientId\n";
+        echo "Name: " . $details['firstname'] . " " . $details['lastname'] . "\n";
+        echo "Email: " . $details['email'] . "\n";
+        echo "Active Services: $activeProducts\n";
+        echo "Domains: $domainCount\n";
+        echo "Status: " . $details['status'] . "\n";
+        echo "-----------------------------\n";
+
+        // Save Client ID only
         fwrite($file, $clientId . PHP_EOL);
     }
 
@@ -81,6 +97,6 @@ do {
 fclose($file);
 
 echo "\nTOTAL FOUND: $found\n";
-echo "Saved to: inactive_client_ids.txt\n";
+echo "Client IDs saved to: inactive_client_ids.txt\n";
 echo "DONE";
 echo "</pre>";
